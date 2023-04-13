@@ -1,6 +1,4 @@
-import sys, io, time, random, json, xml.etree.ElementTree as ET, lxml.html, lxml.etree
-from copy import copy
-from more_itertools import ncycles
+import sys, time, random
 
 import selenium.webdriver
 from selenium.webdriver.remote.command import *
