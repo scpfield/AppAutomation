@@ -1,7 +1,9 @@
 import sys, io, time, random, json, xml.etree.ElementTree as ET, lxml.html, lxml.etree
 from copy import copy
+from more_itertools import ncycles
 
-import selenium.webdriver
+from selenium import webdriver
+from selenium.webdriver.remote.command import *
 import appium.webdriver
 
 import app_config
@@ -16,18 +18,15 @@ class DriverInitException(Exception):
     
 class TestApp():
     
-    START_PAGE_KEY = 'StartPage'
-    
     def __init__( self, UseAppium = True ):
         if not self.InitializeDriver( UseAppium ):
             raise DriverInitException
         
-        self.Page = app_config.Container()
-        app_config.Page = self.Page
         app_config.App  = self
-        ...
-    
-    def StartApp( self ):
+        
+        self.CurrentPageName = ''
+        app_config.CurrentPageName = self.CurrentPageName
+        
         ...
     
     def ExitApp( self ):
@@ -41,30 +40,109 @@ class TestApp():
             return False
         ...
 
-    def WaitForPage( self, WaitForResourceId ):
-        ...            
+    def LoadPage( self, PageName = None, Target = None, WaitFor = None ):
         
-    def InitializeDriver( self, UseAppium ):
-        ...
-    
-    def GetStartPage( self ):
-        ...
+        try:
+            
+            if Target:
+                
+                if isinstance(self, WebApp):
+                    app_config.Driver.get( Target )
+                
+                if isinstance(self, AndroidApp):
+                    app_config.Driver.start_activity( self.Package, self.Activity )
+            
+            
+            DriverName   = self.WaitForPage( WaitFor = WaitFor )            
+            
+            if not DriverName:
+                print('Failed to wait for the page')
+                return False
+            
+            Page = self.NewPage( App = self, PageName = PageName )
+
+            if not Page:
+                print('Failed to create page')
+                return False
+            
+            
+            setattr( self, PageName, Page)
+            
+            self.CurrentPageName        = PageName
+            self.CurrentPage            = Page
+            
+            app_config.CurrentPageName  = self.CurrentPageName
+            app_config.CurrentPage      = self.CurrentPage
+            
+            return True
+            
+        except BaseException as e:
+            GetExceptionInfo(e)
+            return False
         
-... # end of TestApp base class
-    
-    
-class WebApp( TestApp ):
+        
+    def WaitForPage( self, WaitFor = None):
+        
+        DriverPageName  = None
+        MaxCount        = 10
+        Count           = 0
+                
+        # wait for app activity/page to change
+        while Count < MaxCount:
 
-    def __init__( self, UseAppium = True ):
-        print('Called')
-        super().__init__( UseAppium )
-        self.CurrentActivity = ''
+            Count += 1
+            DriverPageName = self.GetDriverPageName()
+            
+            print("DriverPageName  : "  + DriverPageName)
+            print("CurrentPageName : "  + self.CurrentPageName)
+            
+            if DriverPageName == self.CurrentPageName:
+                print(f"Waiting for DriverPageName to change. " +
+                      f"Count = {Count}")
+                time.sleep( 0.5 )
+                
+            else:
+                print('DriverPageName has changed to: ' + DriverPageName)
+                break
+        
+        if Count == MaxCount:
+            print('DriverPageName did not change after waiting')
+            return None
+        
+        # if caller did not ask to wait for anything else we're done
+        if not WaitFor:
+            return DriverPageName
+        
+        # even if the activity/page has changed, it may not be
+        # fully loaded and ready, so if the caller specifies a
+        # resource-id of an element to wait for, then wait for it
+        
+        MaxCount    = 10
+        Count       = 0
+        
+        while Count < MaxCount:
+            
+            Result = None
+            Count += 1
+                    
+            # search to find an element that exists 
+            if ( WaitFor, True ) in self.GetElementTree():
+            
+                print( f"Found: {WaitFor}" )
+                return DriverPageName
+            
+            else:
+                print( f"Waiting for: {WaitFor}, Count = {Count}" )
+                time.sleep(0.5)
+        
+        if Count == MaxCount:
+            print(f"Could not find: {WaitFor}" )
+            return None
         ...
 
-    @classmethod
-    def NewPage( cls, *args, **kwargs ):
+    def NewPage( self, *args, **kwargs ):
                             
-        print('Creating new WebAppPage')
+        print('Creating new Page')
         
         # intercept args and adjust if needed
         App         = kwargs['App']
@@ -82,14 +160,30 @@ class WebApp( TestApp ):
             kwargs['PageName'] = UniqueName
             print('Renamed page to: ' + UniqueName)
             
-        NewPage = None
-        NewPage = app_pages.WebAppPage( *args, **kwargs )   
-        setattr( App, NewPage.PageName, NewPage )
-        App.CurrentPage             = NewPage
-        app_config.CurrentPage      = NewPage
-        return NewPage
+        Page = None
+        Page = self.LoadPageType()( *args, **kwargs )
+        return Page
+        ...
+        
+    def InitializeDriver( self, UseAppium ):
+        ...
+        
+    def GetDriverPageName( self ):
+        ...
+        
+... # end of TestApp base class
+    
+    
+class WebApp( TestApp ):
+
+    def __init__( self, UseAppium = True ):
+        print('Called')
+        super().__init__( UseAppium )
         ...
     
+    def LoadPageType( self ):
+        return app_pages.WebAppPage
+        
     def InitializeDriver(self, UseAppium = True ):
         
         try:
@@ -99,12 +193,26 @@ class WebApp( TestApp ):
                 CapabilityParameters = {}
                 Capabilities = {}
                 CapabilityParameters['acceptInsecureCerts'] = True
-                CapabilityParameters['unhandledPromptBehavior'] = 'dismiss'
+                CapabilityParameters['unhandledPromptBehavior'] = 'accept'
                 CapabilityParameters['pageLoadStrategy'] = 'normal'
-                Capabilities['capabilities'] = {}
-                Capabilities['capabilities']['alwaysMatch'] = CapabilityParameters                    
+                Capabilities['capabilities'] = CapabilityParameters
+                Capabilities['capabilities']['alwaysMatch'] = CapabilityParameters
+                Capabilities['acceptInsecureCerts'] = True
+                Capabilities['unhandledPromptBehavior'] = 'accept'                
+                Capabilities['pageLoadStrategy'] = 'normal'
                 
-                app_config.Driver = selenium.webdriver.Chrome(desired_capabilities=Capabilities)
+                MyOptions = webdriver.ChromeOptions()
+                MyOptions.add_argument("high-dpi-support=1")
+                MyOptions.add_argument("force-device-scale-factor=1.25")
+                MyOptions.add_argument("allow-insecure-localhost")
+                MyOptions.add_argument("allow-external-pages")
+                MyOptions.add_argument("ignore-urlfetcher-cert-requests")
+                MyOptions.add_argument("dark-mode-settings=1")
+                
+                #driver = webdriver.Chrome(options=options)
+                app_config.Driver = webdriver.Chrome(
+                                    desired_capabilities=Capabilities, 
+                                    chrome_options=MyOptions)
                 
             else:
                 print('Initializing Appium app_config.Driver' )
@@ -120,126 +228,23 @@ class WebApp( TestApp ):
             return None
 
         if app_config.Driver:
+            app_config.Driver.set_page_load_timeout( 5000 )
+            app_config.Driver.set_script_timeout( 5000 )
             app_config.Driver.implicitly_wait( 0 )
             print( 'app_config.Driver Initialization Complete' )
         
         return app_config.Driver != None
         ...
 
-           
-    def StartApp( self, StartURL ):
-
-        self.StartURL   = StartURL
-
-        print('Starting: ' + StartURL )
+    def GetDriverPageName( self ):
+         return str(app_config.Driver.current_url)
+         
+    def GetElementTree( self ):
+        return app_pages.WebAppPage.CreateElementTree()
         
-        try:
-        
-            app_config.Driver.get( StartURL )
+
             
-            if app_config.Driver.title:
-            
-            
-                StartPageActivity = self.WaitForPage()            
-            
-                StartPage = self.NewPage(
-                            App = self,
-                            PageName = TestApp.START_PAGE_KEY )
-                    
-                    
-                if StartPage:
-                    self.CurrentPage = str(app_config.Driver.current_url)
-                    return StartPage
-                else:
-                    return False
-                
-            else:
-                print('No current driver URL')
-                self.ExitApp()
-                return False
-                
-        except BaseException as e:
-            GetExceptionInfo(e)
-            self.ExitApp()
-            return False
     
-    
-    # TODO: Make this accept any attribute of an element to waitfor
-    def WaitForPage( self, WaitForCriteria = None):
-        
-        DriverActivity = None
-        MaxCount       = 10
-        Count          = 0
-        
-        self.Ready = False
-        
-        # wait for app activity/page to change
-        while Count < MaxCount:
-
-            Count += 1
-            DriverActivity = str( app_config.Driver.current_url )
-            
-            print("DriverActivity  : "  + DriverActivity)
-            print("CurrentActivity : "  + self.CurrentActivity)
-            
-            if DriverActivity == self.CurrentActivity:
-                print(f"Waiting for DriverActivity to change. " +
-                      f"Count = {Count}")
-                time.sleep( 0.5 )
-                
-            else:
-                print('DriverActivity has changed to: ' + DriverActivity)
-                break
-        
-        if Count == MaxCount:
-            print('DriverActivity did not change after waiting')
-            return False
-        
-        # if caller did not ask to wait for anything else we're done
-        if not WaitForCriteria:
-            print('Setting CurrentActivity to: '+ DriverActivity)
-
-            self.CurrentActivity        = DriverActivity
-            app_config.CurrentActivity  = self.CurrentActivity
-            
-            return self.CurrentActivity
-        
-        # even if the activity/page has changed, it may not be
-        # fully loaded and ready, so if the caller specifies a
-        # resource-id of an element to wait for, then wait for it
-        
-        MaxCount    = 10
-        Count       = 0
-        
-        while Count < MaxCount:
-            
-            Result = None
-            Count += 1
-            
-            # create a temp element tree from the server DOM data
-            # calls the @classmethod directly
-            TempElementTree = app_pages.WebAppPage.CreateElementTree()
-        
-        
-            if not (WaitForCriteria, True) in TempElementTree:
-            
-                print( f"Setting CurrentActivity to: {DriverActivity}")
-                
-                self.CurrentActivity        = DriverActivity
-                app_config.CurrentActivity  = self.CurrentActivity
-                
-                return self.CurrentActivity
-                
-            else:
-                print( f"Waiting for: {WaitForCriteria}, " +
-                       f"Count = {Count}" )
-                time.sleep(0.5)
-        
-        if Count == MaxCount:
-            print(f"Could not find: {WaitForCriteria}")
-            return False
-...
-
         
 ...  # end of WebApp class
 
@@ -248,49 +253,9 @@ class AndroidApp( TestApp ):
 
     def __init__( self ):
         super().__init__( UseAppium = True )
-        self.CurrentActivity = ''
-        self.CurrentPage = None
 
-    @classmethod
-    def NewPage( cls, *args, **kwargs ):
-                            
-        print('Creating new AndroidAppPage')
-
-        # intercept args and adjust if needed
-        App         = kwargs['App']
-        PageName    = kwargs['PageName']
-        UniqueName  = None
-        
-        # check if the requested page already exists
-        if hasattr(App, PageName):
-        
-            print("Page name collision")
-            
-            # append random string to requested page name
-            UniqueName = PageName + '_' + RandomString(5)
-            
-            kwargs['PageName'] = UniqueName
-            print('Renamed page to: ' + UniqueName)
-        
-        # try to make a new page
-        NewPage = None
-        NewPage = app_pages.AndroidAppPage( *args, **kwargs )
-        
-        if NewPage:
-        
-            print("Successfully created new page")
-            print(f"Setting CurrentPage to: {NewPage.PageName}")
-            
-            setattr( App, NewPage.PageName, NewPage )
-            App.CurrentPage             = NewPage
-            app_config.CurrentPage      = NewPage
-            return NewPage
-            
-        else:
-            print("Failed to create new page")
-            return False
-        ...
-        
+    def LoadPageType( self ):
+        return app_pages.AndroidAppPage
         
     def InitializeDriver( self, UseAppium = True ):
 
@@ -323,210 +288,14 @@ class AndroidApp( TestApp ):
         
         return app_config.Driver != None
         ...    
-
-    def StartApp(self, Package, Activity):
-
-        self.Package   = Package
-        self.Activity  = Activity
-
-        print('Starting: ' + Package + ', ' + Activity)
-        
-        try:
-        
-            if not app_config.Driver.start_activity( Package, Activity ):
-                print('Failed to Driver.start_activity')
-                return False
-            
-            StartPageActivity = self.WaitForPage(
-                                WaitForResourceId = 
-                                "android:id/navigationBarBackground")
-        
-            if not StartPageActivity:
-                print('Failed to wait for StartPage to be ready')
-                return False
-            
-            StartPage = AndroidApp.NewPage(
-                         App  = self,
-                         PageName = StartPageActivity )
-                
-            if not StartPage:
-                print('Failed to create StartPage')
-                return False
-            
-            return StartPage
-                
-        except BaseException as e:
-            GetExceptionInfo(e)
-            return False
     
-    
-    # TODO: Make this accept any attribute of an element to waitfor
-    def WaitForPage( self, WaitForResourceId = None):
-        
-        DriverActivity = None
-        MaxCount       = 10
-        Count          = 0
-        
-        self.Ready = False
-        
-        # wait for app activity/page to change
-        while Count < MaxCount:
+    def GetDriverPageName( self ):
+         return str(app_config.Driver.current_activity)
+     
+    def GetElementTree( self ):
+        return app_pages.AndroidAppPage.CreateElementTree()
+     
 
-            Count += 1
-            DriverActivity = str( app_config.Driver.current_activity )
-            
-            print("DriverActivity  : "  + DriverActivity)
-            print("CurrentActivity : "  + self.CurrentActivity)
-            
-            if DriverActivity == self.CurrentActivity:
-                print(f"Waiting for DriverActivity to change. " +
-                      f"Count = {Count}")
-                time.sleep( 0.5 )
-                
-            else:
-                print('DriverActivity has changed to: ' + DriverActivity)
-                break
-        
-        if Count == MaxCount:
-            print('DriverActivity did not change after waiting')
-            return False
-        
-        # if caller did not ask to wait for anything else we're done
-        if not WaitForResourceId:
-            print('Setting CurrentActivity to: '+ DriverActivity)
-
-            self.CurrentActivity        = DriverActivity
-            app_config.CurrentActivity  = self.CurrentActivity
-            
-            return self.CurrentActivity
-        
-        # even if the activity/page has changed, it may not be
-        # fully loaded and ready, so if the caller specifies a
-        # resource-id of an element to wait for, then wait for it
-        
-        MaxCount    = 10
-        Count       = 0
-        
-        while Count < MaxCount:
-            
-            Result = None
-            Count += 1
-            
-            # create a temp element tree from the server DOM data
-            # calls the @classmethod directly
-            TempElementTree = app_pages.AndroidAppPage.CreateElementTree()
-        
-            # search to find an element that exists 
-            # with the targeted resource-id
-            Result =  ([  Element
-                          for Element in TempElementTree.Descendants()
-                          if ( hasattr( Element, 'resource_id') 
-                          and WaitForResourceId in Element.resource_id ) ])
-            
-            if Result:
-                Result = Result[0]
-                print( f"Found: {WaitForResourceId}, " +
-                       f"In Node: {Result.ObjPath}" )
-                       
-                print( f"Setting CurrentActivity to: {DriverActivity}")
-                
-                self.CurrentActivity        = DriverActivity
-                app_config.CurrentActivity  = self.CurrentActivity
-                
-                return self.CurrentActivity
-                
-            else:
-                print( f"Waiting for: {WaitForResourceId}, " +
-                       f"Count = {Count}" )
-                time.sleep(0.5)
-        
-        if Count == MaxCount:
-            print(f"Could not find: {WaitForResourceId}")
-            return False
-...
-
-
-class HackerRankTest( WebApp ):
-
-    def __init__( self, UseAppium = False ):
-        super().__init__( UseAppium )
-        self.TestAppURL = 'https://the-internet.herokuapp.com/dynamic_loading/1'
-        #self.TestAppURL = 'http://the-internet.herokuapp.com/large'
-    ...
-    
-    #  This basic test loads the web page, then:
-    #  1.  Clicks the Start button.
-    #  2.  Waits for the "Hello, World" hidden text to appear.
-    #  3.  Refreshes the page
-    #  4.  Rinse and repeat 50 times.
-    
-    def Test( self ):
-            
-        StartPage = self.StartApp( self.TestAppURL )
-        
-        if not StartPage:
-            print('Failed to start app')
-            self.ExitApp()
-            return False
-
-        for x in range(50):
-       
-            Button = None
-            PageRootNode = None
-            PageRootNode = app_config.CurrentPage.PageElementTree
-            StartPage.PageSourceToFile()
-            StartPage.EnumerateElementTree()
-           
-            # The framework builds a Python object tree from the HTML DOM.
-            # Then I use List Comprehension to find elements
-            
-            Button = ([  Element
-                         for Element in app_config.CurrentPage.PageElementTree.Descendants()
-                         if Element.Name == 'button_0'
-                         if Element.Text == 'Start'    ])[0]
-            
-            if Button:
-                Button.Click()
-            else:
-                return False
-            
-            self.CurrentActivity = ''
-            
-            # Once the Start button is clicked, there is javascript on the
-            # the web page that intentionally sleeps for 5-seconds before
-            # making the "Hello, World" text visible.  So we wait for that.
-            
-            # Use another List Comprehension to wait for the element to appear.
-            
-            for x in range(10):
-            
-                TempElementTree = app_pages.WebAppPage.CreateElementTree()
-                
-                Button = ([ Element
-                            for Element in TempElementTree.Descendants()
-                            if      getattr(Element, 'id') == 'finish'
-                            if not  getattr(Element, 'style' )])
-                        
-                if not Button:
-                    time.sleep(1)
-
-            # Refresh the page and do it again
-            
-            app_config.Driver.refresh()
-            
-            NewPageActivity = RandomString(20)     
-            print('New Page/Activity: ' + NewPageActivity)
-        
-            NewPage = WebApp.NewPage( App = self,
-                                      PageName = NewPageActivity )
-                                
-            if not NewPage:
-                print('Failed to create new page: ' + NewPageActivity)
-                self.ExitApp()
-                return False            
-    
-            
-        
 
 class AndroidSettingsApp( AndroidApp ):
 
@@ -981,10 +750,6 @@ if __name__ == '__main__':
     
     #MyTestApp = AndroidSettingsApp() 
     #MyTestApp.Test()
-    
-    MyTestApp = HackerRankTest( UseAppium = False )
-    
-    MyTestApp.Test()
 
 
 '''

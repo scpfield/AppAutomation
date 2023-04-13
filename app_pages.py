@@ -5,8 +5,9 @@ from copy import copy
 #from itertools import *
 #from more_itertools import *
 
-import selenium.webdriver
-import appium.webdriver
+import  selenium.webdriver
+from    selenium.webdriver.remote.command import *
+import  appium.webdriver
 
 import app_config
 import apps
@@ -33,9 +34,7 @@ class AppPage():
 
     def PageSourceToFile(self, FileName = 'page_source.xml', Randomize = False):
         if Randomize: 
-            FileName = FileName.replace('.xml', '_' + self.PageName + '_' + RandomString(5) + '.xml')
-        else:
-            FileName = FileName.replace('.xml', '_' + self.PageName + '.xml')
+            FileName = FileName.replace('.xml', '_' + RandomString(5) + '.xml')
             
         print('PageSourceToFile: Writing to file: ' + FileName)
 
@@ -46,9 +45,7 @@ class AppPage():
     def ElementTreeToFile(self, FileName = 'element_tree.json', Randomize = False):
         return
         if Randomize: 
-            FileName = FileName.replace('.json', '_' + self.PageName + '_' + RandomString(5) + '.json')
-        else:
-            FileName = FileName.replace('.json', '_' + self.PageName + '.json')
+            FileName = FileName.replace('.json', '_' + RandomString(5) + '.json')
             
         print('ElementTreeToFile: Writing to file: ' + FileName)
                     
@@ -70,7 +67,7 @@ class AppPage():
             #print("node = ", Node)
             #print(str(self.PageElementTree.Lists))
             Spaces = (' ' * ( (MaxNameLen - len(Node.Name)) + 2))
-            print(f"{Node.Name}{Spaces}: {Node.ObjPath}", Decorate=False)
+            print(f"{Node.Name}{Spaces}: {Node.ObjPath}, DOMPath: {Node.DOMPath}, Selector: {Node.Selector}, Text: {Node.Text}", Decorate=False)
             
             
     @classmethod
@@ -79,8 +76,10 @@ class AppPage():
                            CurrentNode   = None, 
                            ObjPath       = '',
                            XPath         = '',
+                           DOMPath       = '',
                            Level         = 0,
-                           NodeTagCounts = None ):
+                           NodeTagCounts = None,
+                           LevelCounts   = None):
         
         if XMLNode == None:
             XMLTree =   ET.canonicalize(
@@ -91,18 +90,16 @@ class AppPage():
         
         # make up a name for a new python object node
         ShortTagName = XMLNode.tag.split('.')[-1].split('}')[-1]
-        XPath += ('/' + ShortTagName) 
         ElementName = ''
+        XPath += f"/{ShortTagName}"
         
         if NodeTagCounts == None:
             NodeTagCounts = {}
         
-        # to generate unique object names, if the XML element
-        # has an index attribute, use that.  otherwise, keep
-        # track of the count of duplicate tag names in the 
-        # same level with a dictionary using the python id()
-        # as the key
-        
+        if LevelCounts == None:
+            LevelCounts = {}
+
+
         if 'index' not in XMLNode.attrib:
         
             NodeKey = 0
@@ -128,11 +125,27 @@ class AppPage():
                 ShortTagName + '_' + 
                 str( XMLNode.attrib['index'] ))        
         
-        
         if not CurrentNode:
             ObjPath += ElementName
         else:
             ObjPath += ( '.' + ElementName )
+
+
+        CurrentLevelCount = 0
+        
+        if CurrentNode != None:
+                
+            if CurrentNode.ObjPath in LevelCounts:
+                LevelCounts[CurrentNode.ObjPath] += 1
+            else:
+                LevelCounts[CurrentNode.ObjPath] = 0
+            
+            CurrentLevelCount = LevelCounts[CurrentNode.ObjPath]
+        
+        if DOMPath == '':
+            DOMPath = 'document'
+        
+        DOMPath += f".children[{CurrentLevelCount}]"
         
         # convert xml attribute values to python data types
         ElementAttrs = {}
@@ -201,7 +214,7 @@ class AppPage():
                                   Attributes  = dict( ElementAttrs ),
                                   ObjPath     = str( ObjPath ),
                                   XPath       = str( XPath ),                                     
-                                  Selector    = cls.GetSelector( XMLNode ),
+                                  Selector    = cls.GetSelector( XMLNode, XPath ),
                                   Locator     = cls.GetLocator( XMLNode ),
                                   Instance    = None )
         
@@ -210,6 +223,12 @@ class AppPage():
         
         # add parent
         setattr(NewNode, 'Parent', CurrentNode)
+        
+        # add level index
+        NewNode.LevelIndex = CurrentLevelCount
+        
+        # add DOMPath
+        NewNode.DOMPath = DOMPath
 
         # add new object as child object
         if CurrentNode == None:
@@ -225,8 +244,10 @@ class AppPage():
                                             CurrentNode = NewNode, 
                                             ObjPath     = ObjPath,
                                             XPath       = XPath,
+                                            DOMPath     = DOMPath,
                                             Level       = (Level + 1),
-                                            NodeTagCounts = NodeTagCounts)
+                                            NodeTagCounts = NodeTagCounts,
+                                            LevelCounts   = LevelCounts)
                                             
         return CurrentNode
     ...
@@ -261,7 +282,7 @@ class AndroidAppPage( MobileAppPage ):
         return app_elements.AndroidElement.LOCATOR_ANDROID                
 
     @classmethod
-    def GetSelector( cls, SourceNode ):
+    def GetSelector( cls, SourceNode, XPath ):
         
         SourceAttrs = SourceNode.attrib
         
@@ -313,10 +334,25 @@ class WebAppPage( AppPage ):
         
     @classmethod
     def GetPageSource( cls ):
+        
         print('WebAppPage: GetPageSource called')
-        return  lxml.etree.tostring(
-                lxml.html.fromstring( 
-                super().GetPageSource()))
+        # # document.documentElement.outerHTML
+        Script = "return new XMLSerializer().serializeToString(document);"
+        Args = []
+        Result = app_config.Driver.execute( Command.W3C_EXECUTE_SCRIPT,
+                                            {  'script' : Script,
+                                               'args'  : Args     })
+        if Result:
+            if ( XML := Result.get('value') ):
+                print("WebAppPage: Returning XMLSerializer result")
+                #print(XML, Decorate=False)
+                #Pause()
+                return XML
+        else:        
+            print("WebAppPAge: Returning normal PageSource")
+            return  lxml.etree.tostring(
+                    lxml.html.fromstring( 
+                    super().GetPageSource()))
         ...
     
     @classmethod
@@ -324,14 +360,14 @@ class WebAppPage( AppPage ):
         return app_elements.WebAppElement.LOCATOR_CSS
      
     @classmethod
-    def GetSelector( cls, SourceNode ):
+    def GetSelector( cls, SourceNode, XPath ):
+        
+        Selector = XPath.replace('/', ' ').strip()
         
         ExcludeChars = [ '[', ']', '{', '}', '<', '>', '\n', '\r', 
                         '\t', '`', '\\', '|', '=', '*', '"', '\'' ]
 
-        ShortTagName = SourceNode.tag.split('.')[-1].split('}')[-1]
-        Selector = str( ShortTagName )
-        
+       
         for Name in SourceNode.attrib:
             Skip = False
             if ((SourceNode.attrib[Name] == None) or

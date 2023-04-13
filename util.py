@@ -35,7 +35,7 @@ def GetShortArgs(*Args):
         for Idx, Value in enumerate(ArgsList):
             ValueStr = str(Value)
             if len(ValueStr) > 512:
-                NewArgs = NewArgs + ( ValueStr[:512], )
+                NewArgs = NewArgs + ( ValueStr[:512] + " (TRUNCATED)", )
                 #builtins.print(NewArgs)
             else:
                 NewArgs = NewArgs + ( ValueStr, )

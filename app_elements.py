@@ -16,14 +16,14 @@ from selenium.webdriver.common.actions.mouse_button import MouseButton
 from selenium.webdriver.common.actions.pointer_input import PointerInput
 from selenium.webdriver.common.actions.key_input import KeyInput
 from selenium.webdriver.common.actions.wheel_input import WheelInput
-from selenium.webdriver.remote.command import Command as RemoteCommand
+#from selenium.webdriver.remote.command import Command as RemoteCommand
+from selenium.webdriver.remote.command import *
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.expected_conditions import *
 from selenium.common.exceptions import *
 from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.remote.webelement import WebElement
 from appium.webdriver.webelement import WebElement
-
 
 AndroidAttributeNames = [
     'resource-id', 'name', 'text', 'original-text', 
@@ -40,19 +40,18 @@ AndroidPropertyNames = [
 
 class NoIterListsException(Exception):
     ...
-
-
   
 class AppElement():
 
     def __init__( self, *args, **kwargs ):
-    
+            
         for Arg, ArgValue in kwargs.items():
             if Arg == 'Attributes' and ArgValue:
                 for Key, Value in ArgValue.items():
+                    #print("Setting Arg: " + Key)
                     setattr(self, Key, Value)
-                    FixedKey = str(Key.replace('-','_'))
-                    setattr(self, FixedKey, Value)
+                    #FixedKey = str(Key.replace('-','_'))
+                    #setattr(self, FixedKey, Value)
             else:
                 setattr(self, Arg, ArgValue)
     
@@ -233,10 +232,9 @@ class AppElement():
    
     # this is to implement "if / in" functionality
     def __contains__( self, Arg ):
-
-        print("__CONTAINS__")
-        print(Arg)
-        Pause()
+    
+        #print("__contains__: " + str(Arg))
+        
         if not Arg: return False
         
         SearchDescendants   = False
@@ -283,33 +281,50 @@ class AppElement():
                                  (  Item  in  Element.__dict__  )))
                          ])
                 
-                #print(f"{len(Result)} exist in Node / Descendants")
+                # print(f"{len(Result)} exist in Node / Descendants")
                 if     len( Result ) > 0: continue
                 else:  return False
 
             # Search for Attributes Names + Values using Dictionary
             if isinstance( Item, dict ):
-                Result = ([   
-                            Element.ObjPath
-                            for  Element     in  self.Descendants()
-                            for  Key, Value  in  Item.items()
+                
+                SearchElements = [ self ]
+                
+                if SearchDescendants:
+                    SearchElements.extend( self.Descendants() )
+                    
+                for Key, Value in Item.items():
+
+                    Elements = ([   Element 
+                                    for  Element in SearchElements
+                                    if   Element.__dict__.get(Key) == Value
+                                ])
+                    
+                    if    Elements: SearchElements = Elements
+                    else: return False
                         
-                            if ((   not SearchDescendants               )  and
-                                (   self.__dict__.get(Key) == Value     ))
-                            or
-                                ((  SearchDescendants                   )  and
-                                ((  self.__dict__.get(Key)    == Value  )  or
-                                 (  Element.__dict__.get(Key) == Value  )))
-                          ])
-            
-                # print(f"{len(Result)} exist in Node / Descendants")
-                if     len( Result ) > 0: continue
+                    
+                #print(f"{len(Elements)} element exists in Node / Descendants")
+                
+                if     len( Elements ) > 0: continue
                 else:  return False
+                
                 
         return True
         ...
     
-    
+
+    def __lt__( self, Other ):
+        
+        return ( len(self.ObjPath.split('.')) < 
+                 len(Other.ObjPath.split('.')))
+        
+    def __gt__( self, Other ):
+        
+        return ( len(self.ObjPath.split('.')) > 
+                 len(Other.ObjPath.split('.')))
+
+        
     def __repr__( self ):
         return str( self.__dict__ )
     
@@ -333,39 +348,6 @@ class AppElement():
     def __hash__( self ):
         return hash( self.ObjPath )
         ...
-
-    def IsChildOf( self, ParentObj ):
-        if hasattr( self, 'Parent' ):
-            return True if self.Parent == ParentObj else False
-        else: return False
-
-    def IsChildOf( self, ParentName ):
-        if hasattr( self, 'Parent' ):
-            return True if self.Parent.Name == ParentName else False
-            
-    def IsParentOf( self, ChildObj ):
-        for Obj in self:
-            if Obj == ChildObj:
-                return True
-        return False
-        
-    def IsParentOf( self, ChildName ):
-        for Obj in self:
-            if Obj.Name == ChildName:
-                return True
-        return False
-
-    def IsDescendantOf( self, ParentObj ):
-        return True if ParentObj.ObjPath in self.ObjPath else False
-
-    def IsAncestorOf( self, ChildObj ):
-        return True if self.ObjPath in ChildObj.ObjPath else False
-        
-    def IsSiblingOf( self, SiblingObj ):
-        if (( hasattr( self, 'Parent' )) and 
-            ( hasattr( SiblingObj, 'Parent'))):
-            return True if self.Parent == SiblingObj.Parent else False
-            
         
     def InitializeW3CActions( self ):
         ...
@@ -419,65 +401,9 @@ class AppElement():
         for Device in self.InputActions.w3c_actions.devices:
             Device.clear_actions()
         ...
-    
-    def EnterText(self, TextValue):
-    
-        if not self.Instance:
-            if not self.CreateDriverInstance():
-                print('EnterText: Failed to create instance for: ' + self.Name)
-                return False
-            else:
-                print('EnterText: Created new instance for: ' + self.Name)
-        ...
-        
-        for x in range(1):
-        
-            self.ClearW3CActions()
-            
-            try:
-            
-                self.PointerAction.move_to( self.Instance )
-                self.PointerAction.pointer_down()
-                self.PointerAction.pointer_up()
-            
-                for Character in TextValue:
-                    self.KeyAction.key_down( Character )
-                    self.KeyAction.key_up( Character )
-                    self.InputActions.perform()
-                
-            except ( StaleElementReferenceException, 
-                     NoSuchElementException,
-                     BaseException) as e:
-                
-                return False
-        ...
-        
-        return True
-    ...    
-    
-    def MoveTo( self ):
-
-        CenterX  = self.bounds.get('CenterX')
-        CenterY  = self.bounds.get('CenterY')
-
-        try:
-        
-            for x in range( RepeatCount ):
-                
-                self.PointerAction.move_to_location( 
-                    x = CenterX, 
-                    y = CenterY, 
-                    duration = Duration )
-                
-                self.InputActions.perform()
-                    
-        except BaseException as e:
-            GetExceptionInfo(e)
-            return False
-            
-        return True
 
 ...  # end of AppElement class
+
 
 class ScrollableElement():
 
@@ -511,22 +437,72 @@ class FocusableElement():
     def SetFocus( RepeatCount = 1, Duration = 50):
         ...
         
+class EditableElement():
+
+    def __init__( self ):
+        ...
+        
+    def SendKeys( self, Text ):
+    
+        if not self.Instance:
+            if not self.CreateDriverInstance():
+                print("Failed to create Driver Instance")
+                return False
+            else:
+                print("CREATED NEW INSTANCE")
+        
+        print("Driver Element ID: " + str(self.Instance.id))
+        self.Instance.send_keys( Text )
+        
+
+    def SetValue( self, Value ):
+    
+        Result = None
+        Script = ( f"return ({self.DOMPath}.value = '{Value}');" )
+        
+        try:
+            print(Script)
+            Result = app_config.Driver.execute( 
+                        Command.W3C_EXECUTE_SCRIPT,
+                        { 'script' : Script,
+                          'args'   : []  } ) 
+
+        except BaseException as e:
+            GetExceptionInfo(e)
+            Pause()
+            return None
+        
+        if Result:  return Result.get('value')
+        else:       return None
+
+
+    def GetValue( self ):
+    
+        Result = None
+        Script = ( f"return {self.DOMPath}.value;" )
+        
+        try:
+            print(Script)
+            Result = app_config.Driver.execute( 
+                        Command.W3C_EXECUTE_SCRIPT,
+                        { 'script' : Script,
+                          'args'   : []  } ) 
+
+        except BaseException as e:
+            GetExceptionInfo(e)
+            Pause()
+            return None
+        
+        if Result:  return Result.get('value')
+        else:       return None
+    
         
 class ClickableElement():
 
-    def __init__( self ):
+    def __init__( self, *args, **kwargs ):
+        print("CLICKABLE_ELEMENT CONSTRUCTOR") 
         ...
-
-    def Click( RepeatCount = 1, Duration = 50):
-        ...
-        #Pause()
-
-
-class ClickableWebAppElement( ClickableElement ):
-
-    def __init__( self ):
-        ...
-
+        
     def Click( self, RepeatCount = 1, Duration = 50 ):
     
         if not self.Instance:
@@ -538,60 +514,7 @@ class ClickableWebAppElement( ClickableElement ):
         
         print("Button ID: " + str(self.Instance.id))
         self.Instance.click()
-        
-        
-        
-class WebAppElement( AppElement ):
 
-    LOCATOR_CSS     = 'css selector'
-
-    def __init__( self, *args, **kwargs ):
-        super().__init__( *args, **kwargs )
-        ...
-
-    @classmethod
-    def NewElement( cls, *args, **kwargs ):
-    
-        Bases = ( AppElement, )
-        
-        Tag = kwargs.get('Tag')
-        
-        if Tag == 'button':
-            print("Setting Bases")
-            Bases = Bases + ( ClickableWebAppElement, )
-        
-        return type( 'WebAppElement', Bases, {} )( *args, **kwargs )
-        
-        
-    def InitializeW3CActions( self ):
-    
-        print('InitializingW3CActions')
-        
-        self.KeyInputSource             =   KeyInput( 
-                                                interaction.KEY )
-        self.WheelInputSource           =   WheelInput(
-                                                interaction.WHEEL )
-        self.MouseInputSource           =   PointerInput(
-                                                interaction.POINTER_MOUSE, 
-                                                interaction.POINTER_MOUSE )
-        self.PointerInputSource         =   self.MouseInputSource
-        self.InputActions               =   ActionChains( app_config.Driver )
-        self.InputActions.w3c_actions   =   ActionBuilder(
-                                                app_config.Driver,
-                                                keyboard    = self.KeyInputSource,
-                                                wheel       = self.WheelInputSource,
-                                                mouse       = self.PointerInputSource )
-                                                
-        self.PointerAction              = self.InputActions.w3c_actions.pointer_action
-        self.KeyAction                  = self.InputActions.w3c_actions.key_action
-        self.WheelAction                = self.InputActions.w3c_actions.wheel_action
-
-        self.ClearW3CActions()
-        
-        return True
-        ...
-    
-    
 
 
 class MobileElement( AppElement ):
@@ -1178,19 +1101,29 @@ class AndroidElement( MobileElement ):
 
     @classmethod
     def NewElement( cls, *args, **kwargs ):
-    
-        Bases = ( MobileElement, )
+
+        BaseClassSet    = set()
+        ElementAttrs    = kwargs.get('Attributes')
         
-        Scrollable = kwargs.get('Attributes').get('scrollable')
-        if Scrollable: Bases = Bases + ( ScrollableAndroidElement, )
+        match ElementAttrs:
+            case { 'scrollable' : True }:
+                BaseClassSet.add( ScrollableAndroidElement )
+            case { 'focusable' :  True }:
+                BaseClassSet.add( FocusableAndroidElement )
+            case { 'clickable' :  True }:
+                BaseClassSet.add( ClickableAndroidElement )
 
-        Focusable = kwargs.get('Attributes').get('focusable')
-        if Focusable: Bases = Bases  + ( FocusableAndroidElement, )
-
-        Clickable = kwargs.get('Attributes').get('clickable')
-        if Clickable: Bases = Bases  + ( ClickableAndroidElement, )
+        BaseClassTuple = ( AndroidElement, )
+        
+        for Item in BaseClassSet:
+            BaseClassTuple += ( Item, )
             
-        return type( 'AndroidElement', Bases, {} )( *args, **kwargs )
+        #print(f"Creating new: {BaseClassTuple}" )
+        
+        return ( type( 'AndroidElement', 
+                        BaseClassTuple, 
+                        {} )
+                        ( *args, **kwargs ) )    
 
     
     def Swipe( self, 
@@ -1200,6 +1133,379 @@ class AndroidElement( MobileElement ):
         print("Hello")
         
 ...   # end of AndroidElement class
+
+
+class WebAppElement( AppElement ):
+
+    LOCATOR_CSS     = 'css selector'
+
+    def __init__( self, *args, **kwargs ):
+        super().__init__( *args, **kwargs )
+        ...
+
+    @classmethod
+    def NewElement( cls, *args, **kwargs ):
+      
+        BaseClassSet    = set()
+        ElementTag      = kwargs.get('Tag')
+        ElementAttrs    = kwargs.get('Attributes')
+        
+        match ElementTag:
+            case 'button' | 'input':
+                BaseClassSet.add( ClickableElement )
+                BaseClassSet.add( FocusableElement )
+            case 'textarea':
+                BaseClassSet.add( EditableElement )
+                BaseClassSet.add( FocusableElement )
+                
+
+        match ElementAttrs:
+            case { 'role' : ( 'button' | 'checkbox' ) }:
+                BaseClassSet.add( ClickableElement )
+                BaseClassSet.add( FocusableElement )
+            case { 'type' : ( 'text' | 'password' ) }:
+                BaseClassSet.add( EditableElement )
+                BaseClassSet.add( FocusableElement )
+            case { 'class' : Value } if Value and 'button' in Value:
+                BaseClassSet.add( ClickableElement )
+                BaseClassSet.add( FocusableElement )
+            case { 'href' : Value } if Value:
+                BaseClassSet.add( ClickableElement )
+                BaseClassSet.add( FocusableElement )
+            case { 'data-hash' : Value } if Value:
+                BaseClassSet.add( ClickableElement )
+                BaseClassSet.add( FocusableElement )
+            case { 'data-component-type' : Value } if Value:
+                BaseClassSet.add( ClickableElement )
+                BaseClassSet.add( FocusableElement )                
+            
+            
+        BaseClassTuple = ( WebAppElement, )
+        
+        for Item in BaseClassSet:
+            BaseClassTuple += ( Item, )
+            
+        #print(f"Creating new: {BaseClassTuple}" )
+        
+        return ( type( 'WebAppElement', 
+                        BaseClassTuple, 
+                        {} )
+                        ( *args, **kwargs ) )
+
+    def InitializeW3CActions( self ):
+    
+        # print('InitializingW3CActions')
+        
+        self.KeyInputSource             =   KeyInput( 
+                                                interaction.KEY )
+        self.WheelInputSource           =   WheelInput(
+                                                interaction.WHEEL )
+        self.MouseInputSource           =   PointerInput(
+                                                interaction.POINTER_MOUSE, 
+                                                interaction.POINTER_MOUSE )
+        self.PointerInputSource         =   self.MouseInputSource
+        self.InputActions               =   ActionChains( app_config.Driver )
+        self.InputActions.w3c_actions   =   ActionBuilder(
+                                                app_config.Driver,
+                                                keyboard    = self.KeyInputSource,
+                                                wheel       = self.WheelInputSource,
+                                                mouse       = self.PointerInputSource )
+                                                
+        self.PointerAction              = self.InputActions.w3c_actions.pointer_action
+        self.KeyAction                  = self.InputActions.w3c_actions.key_action
+        self.WheelAction                = self.InputActions.w3c_actions.wheel_action
+
+        self.ClearW3CActions()
+        
+        return True
+        ...
+
+
+    def GetInnerHTML( self ):
+    
+        Result = None
+        Script = ( f"return {self.DOMPath}." +
+                   f"innerHTML;" )
+        
+        try:
+        
+            Result = app_config.Driver.execute( 
+                        Command.W3C_EXECUTE_SCRIPT,
+                        { 'script' : Script,
+                          'args'   : []  })
+                          
+        except BaseException as e:
+            #GetExceptionInfo(e)
+            #Pause()
+            return False
+        
+        if Result:  return Result.get('value')
+        else:       return False
+            
+            
+    def SetInnerHTML( self, Text = None ):
+    
+        Result = None
+        Script = ( f'return ({self.DOMPath}.' +
+                   f'innerHTML = "{Text}");' )
+        
+        try:
+        
+            print(Script)
+            
+            Result = app_config.Driver.execute( 
+                        Command.W3C_EXECUTE_SCRIPT,
+                        { 'script' : Script,
+                          'args'   : []  })
+                          
+        except BaseException as e:
+            GetExceptionInfo(e)
+            Pause()
+            return False
+        
+        if Result:  return Result.get('value')
+        else:       return False
+
+
+    def GetOuterHTML( self ):
+    
+        Result = None
+        Script = ( f"return {self.DOMPath}." +
+                   f"outerHTML;" )
+        
+        try:
+        
+            Result = app_config.Driver.execute( 
+                        Command.W3C_EXECUTE_SCRIPT,
+                        { 'script' : Script,
+                          'args'   : []  })
+                          
+        except BaseException as e:
+            GetExceptionInfo(e)
+            Pause()
+            return False
+        
+        if Result:  return Result.get('value')
+        else:       return False            
+
+    def GetAttributes( self ):
+    
+        Result = None
+        Script = f"return {self.DOMPath}.attributes"
+        
+        try:
+        
+            Result = app_config.Driver.execute( 
+                        Command.W3C_EXECUTE_SCRIPT,
+                        { 'script' : Script,
+                          'args'   : []  } ) 
+
+        except BaseException as e:
+            #Pause("GetAttributes Exception:")
+            #GetExceptionInfo(e)
+            return None
+        
+        if Result:  return Result.get('value')
+        else:       return None
+    
+    def GetNodeName( self ):
+    
+        Result = None
+        Script = ( f"return {self.DOMPath}.nodeName;" )
+        
+        try:
+            print(Script)
+            Result = app_config.Driver.execute( 
+                        Command.W3C_EXECUTE_SCRIPT,
+                        { 'script' : Script,
+                          'args'   : []  } ) 
+
+        except BaseException as e:
+            GetExceptionInfo(e)
+            Pause()
+            return None
+        
+        if Result:  return Result.get('value')
+        else:       return None    
+    
+    def GetNodeValue( self ):
+    
+        Result = None
+        Script = ( f"return {self.DOMPath}.nodeValue;" )
+        
+        try:
+            print(Script)
+            Result = app_config.Driver.execute( 
+                        Command.W3C_EXECUTE_SCRIPT,
+                        { 'script' : Script,
+                          'args'   : []  } ) 
+
+        except BaseException as e:
+            GetExceptionInfo(e)
+            Pause()
+            return None
+        
+        if Result:  return Result.get('value')
+        else:       return None
+        
+        
+    def GetNodeType( self ):
+    
+        Result = None
+        Script = ( f"return {self.DOMPath}.nodeType;" )
+        
+        try:
+            print(Script)
+            Result = app_config.Driver.execute( 
+                        Command.W3C_EXECUTE_SCRIPT,
+                        { 'script' : Script,
+                          'args'   : []  } ) 
+
+        except BaseException as e:
+            GetExceptionInfo(e)
+            Pause()
+            return None
+        
+        if Result:  return Result.get('value')
+        else:       return None
+
+        
+    def GetAttribute( self, Name ):
+    
+        Result = None
+        Script = ( f"return {self.DOMPath}." +
+                   f"getAttribute('{Name}');" )
+        
+        try:
+        
+            Result = app_config.Driver.execute( 
+                        Command.W3C_EXECUTE_SCRIPT,
+                        { 'script' : Script,
+                          'args'   : []  } ) 
+
+        except BaseException as e:
+            #GetExceptionInfo(e)
+            #Pause()
+            return None
+        
+        if Result:  return Result.get('value')
+        else:       return None
+            
+    
+    def RemoveAttribute( self, Name ):
+    
+        Result = None
+        Script = ( f"return {self.DOMPath}." +
+                   f"removeAttribute('{Name}');" )
+        
+        CurrentValue = self.GetAttribute(Name)
+        
+        if not CurrentValue:
+            print('Attribute does not exist, no need to remove')
+            return True
+        else:
+            try:
+            
+                Result = app_config.Driver.execute( 
+                            Command.W3C_EXECUTE_SCRIPT,
+                            { 'script' : Script,
+                              'args'   : []  } ) 
+
+            except BaseException as e:
+                GetExceptionInfo(e)
+                Pause()
+                return False
+        
+        if Result:
+            
+            print("old value: " + str(CurrentValue))
+            print("new value: " + str(self.GetAttribute(Name)))
+            
+            if CurrentValue == self.GetAttribute(Name):
+                return False
+            else:
+                return True
+        
+        return False
+        
+    def SetAttribute( self, Name, Value ):
+
+        CurrentValue    = None
+        NewValue        = None
+        Result          = None
+        
+        CurrentValue    = self.GetAttribute( Name )
+        
+        if CurrentValue == None:
+            ...
+            #print('Failed to get Attribute')
+            
+        if CurrentValue:
+            
+            if not self.RemoveAttribute( Name ):
+            
+                print('Failed to remove existing Attribute: ' + 
+                        str(CurrentValue))
+                        
+                return None
+            
+        Script = ( f"return {self.DOMPath}." +
+                   f"setAttribute('{Name}','{Value}');" )
+                   
+        try:
+        
+            Result =  app_config.Driver.execute( 
+                        Command.W3C_EXECUTE_SCRIPT,
+                        { 'script' : Script,
+                          'args'   : []  } ) 
+
+        except BaseException as e:
+            #GetExceptionInfo(e)
+            #Pause()
+            return None
+        
+        if Result:  
+            NewValue = Result.get('value')
+            setattr(self, Name, Value)
+            return NewValue
+        else:
+            return None
+
+        
+        
+    def Hide( self ):
+                
+        Result        = None
+        NewStyle      = None
+        HideStyle     = "display:none"
+        CurrentStyle  = self.GetAttribute('style')
+        
+        if not CurrentStyle:
+            NewStyle = HideStyle
+        else:
+            CurrentStyle = CurrentStyle.strip()
+            CurrentStyle += f" {HideStyle}"
+
+        return self.SetAttribute('style', HideStyle)
+                
+
+    def Show( self ):
+    
+        Result        = None
+        HideStyle     = "display:none"
+        NewStyle      = None
+        CurrentStyle  = self.GetAttribute('style')
+        
+        if not CurrentStyle:
+            return True
+        else:
+            if HideStyle in CurrentStyle:
+                NewStyle = ( 
+                    CurrentStyle.replace(HideStyle, '').strip() )
+                    
+                return self.SetAttribute('style', NewStyle)
+            else:
+                return False
 
 
 # Custom JSON Serializer stand-alone function            
@@ -1262,6 +1568,7 @@ def JSONSerializer(Obj):
         return(ObjDict)
     
 ...
+
 
 
 if __name__ == '__main__':
